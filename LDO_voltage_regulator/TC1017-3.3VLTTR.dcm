@@ -1,0 +1,9 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP TC1017-3.3VLTTR
+D Microchip TC1017-3.3VLTTR, LDO Voltage Regulator, 150mA, 3.3 V +/-0.5%, 2.7  6 Vin, 5-Pin SC-70
+K
+F https://componentsearchengine.com/Datasheets/2/TC1017-3.3VLTTR.pdf
+$ENDCMP
+#
+#End Doc Library
