@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "Adafruit LIPoly Charger BFF")(type "KiCad")(uri "$(KIPRJMOD)/Adafruit LIPoly Charger BFF.pretty")(options "")(descr ""))
+)
