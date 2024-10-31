@@ -1961,7 +1961,7 @@
     (property "Value" "LED" (at 119.38 138.7475 90)
       (effects (font (size 1.27 1.27)) (justify right))
     )
-    (property "Footprint" "" (at 115.57 135.89 0)
+    (property "Footprint" "led_footprint:QED123A4R0" (at 115.57 135.89 0)
       (effects (font (size 1.27 1.27)) hide)
     )
     (property "Datasheet" "~" (at 115.57 135.89 0)

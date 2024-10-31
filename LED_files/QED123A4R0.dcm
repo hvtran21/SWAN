@@ -1,0 +1,9 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP QED123A4R0
+D Infrared Emitters - High Power infrared Lt Emitting Plastic
+K
+F https://www.onsemi.com/pdf/datasheet/qed123-d.pdf
+$ENDCMP
+#
+#End Doc Library
