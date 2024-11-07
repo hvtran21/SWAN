@@ -1,4 +1,0 @@
-(sym_lib_table
-  (version 7)
-  (lib (name "Adafruit LIPoly Charger BFF-eagle-import")(type "KiCad")(uri "${KIPRJMOD}/Adafruit LIPoly Charger BFF-eagle-import.kicad_sym")(options "")(descr ""))
-)
