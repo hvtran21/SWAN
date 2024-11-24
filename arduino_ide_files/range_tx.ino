@@ -5,10 +5,21 @@
 
 extern SPISettings _fastSPI;
 
-#define PIN_RST 8
-#define PIN_IRQ 1
-#define PIN_SS 7
-#define RNG_DELAY_MS 500
+/* below are pin definitions for esp32-c3 development board */
+// #define PIN_RST 8 
+// #define PIN_IRQ 1
+// #define PIN_SS 7
+
+/* below are pin definitions for esp32-c3 sdp pcb */
+#define SPI_IRQ 4
+
+#define SPI_CLK 5
+#define SPI_MISO 6
+#define SPI_MOSI 7
+#define SPI_CSN 8
+
+#define SPI_RST 9
+
 #define TX_ANT_DLY 16385
 #define RX_ANT_DLY 16385
 #define ALL_MSG_COMMON_LEN 5
@@ -18,7 +29,7 @@ extern SPISettings _fastSPI;
 #define ALL_MSG_SN_IDX 2
 #define RESP_MSG_POLL_RX_TS_IDX 6
 #define RESP_MSG_RESP_TX_TS_IDX 10
-#define RESP_MSG_DATA_START_IDX 3  // index where data starts
+#define RESP_MSG_DATA_START_IDX 2  // index where data starts
 
 #define POLL_RX_TO_RESP_TX_DLY_UUS 450
 
@@ -45,8 +56,7 @@ static uint8_t rx_poll_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 0xE0, 0, 0, 0, 0, 0, 
 static uint8_t tx_resp_msg[] = {0x41, 0x88, 0, 0xCA, 0xDE, 0xE1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
 static uint8_t rx_data_poll_msg[] = {0xAA, 0xDD, 0, 0, 0, 0, 0, 0};
-// static uint8_t tx_data_resp_msg[] = {0xAA, 0xCC, 0, 'h', 'e', 'l', 'l', 'o', '!', 0, 0, 0};
-static uint8_t tx_data_resp_msg[] = {0xAA, 0xCC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static uint8_t tx_data_resp_msg[] = {0xAA, 0xCC, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static uint8_t distance_frame_counter = 0;
 static uint8_t data_frame_counter = 0;
 static uint8_t rx_buffer[SIZE_OF_RX_BUFFER];
@@ -61,8 +71,12 @@ void setup() {
 
   _fastSPI = SPISettings(16000000L, MSBFIRST, SPI_MODE0);
 
-  spiBegin(PIN_IRQ, PIN_RST);
-  spiSelect(PIN_SS);
+  pinMode(SPI_IRQ, OUTPUT);
+  
+  SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, SPI_CSN);
+  spiSelect(SPI_CSN);
+  delay(100);  // Add a small delay to allow the reset to take effect.
+  
 
   delay(2); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
 
@@ -172,7 +186,6 @@ void send_distance() {
 
           /* Increment frame sequence number after transmission of the poll message (modulo 256). */
           distance_frame_counter++;
-          Serial.println(distance_frame_counter);
         }
       }
     }
@@ -210,24 +223,18 @@ void send_data() {
       rx_buffer[ALL_MSG_SN_IDX] = 0;
       if (memcmp(rx_buffer, rx_data_poll_msg, ALL_DATA_COMMON_LEN) == 0)
       {
-        Serial.begin(115200);
-        Serial.println("rx data poll msg is recieved");
         int ret;
-        // const char *msg = "hello1";
-        char hex_buffer[18];
-        // const char* id = itoa(unique_ID, tmp_buffer, 10);
-        Serial.println(unique_ID);
         uint64_t tmp_id = unique_ID;
-        for (int i = sizeof(tx_data_resp_msg)-1; i >= RESP_MSG_DATA_START_IDX; i--) {
-          uint8_t v = tmp_id % 10;
-          tmp_id = tmp_id / 10;
-          tx_data_resp_msg[i] = v + '0';
-          // Serial.print(tx_data_resp_msg[i]);
-          // Serial.print(" ");
 
+        for (int i = sizeof(tx_data_resp_msg)-1; i >= RESP_MSG_DATA_START_IDX; i--) {
+            if (tmp_id == 0) { 
+                tx_data_resp_msg[i] = '0';  // Fill with zeros if tmp_id is exhausted
+            } else {
+                tx_data_resp_msg[i] = (tmp_id % 10) + '0';
+                tmp_id = tmp_id / 10;
+            }
         }
 
-        tx_data_resp_msg[ALL_MSG_SN_IDX] = data_frame_counter;
         dwt_writetxdata(sizeof(tx_data_resp_msg), tx_data_resp_msg, 0); /* Zero offset in TX buffer. */
         dwt_writetxfctrl(sizeof(tx_data_resp_msg), 0, 1);          /* Zero offset in TX buffer, ranging. */
         ret = dwt_starttx(DWT_START_TX_IMMEDIATE);
@@ -239,14 +246,7 @@ void send_data() {
           while (!(dwt_read32bitreg(SYS_STATUS_ID) & SYS_STATUS_TXFRS_BIT_MASK))
           {
           };
-
-          /* Clear TXFRS event. */
           dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_TXFRS_BIT_MASK);
-          /* Increment frame sequence number after transmission of the poll message (modulo 256). */
-          data_frame_counter++;
-          Serial.println("Data frame sent");
-        } else {
-          Serial.println("ret is failure");
         }
       }
     }
@@ -261,6 +261,6 @@ void send_data() {
 void loop() {
   send_distance();  // function waits for distance request, and sends distance back to anchor 
   dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);   // clear recieve 
-  send_data(); // send data frame
+  send_data(); // function waits for data request, and requests data
 
 }

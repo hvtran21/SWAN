@@ -1,12 +1,19 @@
 #include "dw3000.h"
 #include "esp_efuse.h"
+#include "SPI.h"
+
 #define IS_ANCHOR
 
-#define PIN_RST 8
-#define PIN_IRQ 1
-#define PIN_SS 7
+#define SPI_IRQ 4
 
-#define RNG_DELAY_MS 500
+#define SPI_CLK 5
+#define SPI_MISO 6
+#define SPI_MOSI 7
+#define SPI_CSN 8
+
+#define SPI_RST 9
+
+#define RNG_DELAY_MS 50
 #define TX_ANT_DLY 16385
 #define RX_ANT_DLY 16385
 #define ALL_MSG_COMMON_LEN 5
@@ -15,13 +22,15 @@
 #define ALL_MSG_SN_IDX 2
 #define RESP_MSG_POLL_RX_TS_IDX 6
 #define RESP_MSG_RESP_TX_TS_IDX 10
-#define RESP_MSG_DATA_START_IDX 3  // index where data starts
+#define RESP_MSG_DATA_START_IDX 2  // index where data starts
 
 #define POLL_TX_TO_RESP_RX_DLY_UUS 240
 #define RESP_RX_TIMEOUT_UUS 400
 
 #define SIZE_OF_RX_BUFFER 20
 #define SIZE_OF_RX_DATA_BUFFER 40
+#define VERIFIED_PIN 2
+
 
 /* Default communication configuration. We use default non-STS DW mode. */
 static dwt_config_t config = {
@@ -52,14 +61,18 @@ static uint32_t status_reg = 0;
 static double tof;
 static double distance;
 extern dwt_txconfig_t txconfig_options;
+bool verified = false;
 
 void setup() {
   UART_init();
+  /*next two lines is the original code*/
+  pinMode(SPI_IRQ, OUTPUT);
+  
+  // spiBegin(SPI_IRQ, SPI_RST);
+  SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, SPI_CSN);
+  spiSelect(SPI_CSN);
 
-  spiBegin(PIN_IRQ, PIN_RST);
-  spiSelect(PIN_SS);
-
-  delay(2); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
+  delay(200); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
 
   while (!dwt_checkidlerc()) // Need to make sure DW IC is in IDLE_RC before proceeding
   {
@@ -138,9 +151,9 @@ void get_distance() {
     /* Clear good RX frame event in the DW IC status register. */
     dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);
 
-    /* A frame has been received, read it into the local buffer. */
+    /* A frame has been received, see if it can be stored in local buffer */
     frame_len = dwt_read32bitreg(RX_FINFO_ID) & RXFLEN_MASK;
-    if (frame_len <= sizeof(rx_buffer))
+    if (frame_len <= sizeof(rx_buffer)) 
     {
       dwt_readrxdata(rx_buffer, frame_len, 0);
 
@@ -187,7 +200,6 @@ void get_data() {
   /* 
     this function requests for a data frame, and waits to recieve it
   */
-  tx_data_poll_msg[ALL_MSG_SN_IDX] = frame_seq_nb;
   dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_TXFRS_BIT_MASK);
   dwt_writetxdata(sizeof(tx_data_poll_msg), tx_data_poll_msg, 0); /* Zero offset in TX buffer. */
   dwt_writetxfctrl(sizeof(tx_data_poll_msg), 0, 1);          /* Zero offset in TX buffer, ranging. */
@@ -195,15 +207,11 @@ void get_data() {
   /* Start transmission, indicating that a response is expected so that reception is enabled automatically after the frame is sent and the delay
    * set by dwt_setrxaftertxdelay() has elapsed. */
   dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
-  Serial.println("Data frame request sent");
 
   /* We assume that the transmission is achieved correctly, poll for reception of a frame or error/timeout. See NOTE 8 below. */
   while (!((status_reg = dwt_read32bitreg(SYS_STATUS_ID)) & (SYS_STATUS_RXFCG_BIT_MASK | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR)))
   {
   };
-
-  /* Increment frame sequence number after transmission of the poll message (modulo 256). */
-  frame_seq_nb++;
 
   if (status_reg & SYS_STATUS_RXFCG_BIT_MASK)
   {
@@ -216,34 +224,21 @@ void get_data() {
     frame_len = dwt_read32bitreg(RX_FINFO_ID) & RXFLEN_MASK;
     if (frame_len <= sizeof(rx_data_buffer))
     {
-      dwt_readrxdata(rx_data_buffer, frame_len, 0);
-
+      memset(rx_data_buffer, 0, sizeof(rx_data_buffer));  // clear local buffer to read new data
+    
+      dwt_readrxdata(rx_data_buffer, frame_len+2, 0);
       /* Check that the frame is the expected response from the companion "SS TWR responder" example.
        * As the sequence number field of the frame is not relevant, it is cleared to simplify the validation of the frame. */
-      rx_data_buffer[ALL_MSG_SN_IDX] = 0;
       if (memcmp(rx_data_buffer, rx_resp_data_msg, ALL_DATA_COMMON_LEN) == 0)
       { 
-        // data is recieved here
-        Serial.begin(115200);
-        Serial.println("Data frame recieved! printing contents ... \n");
-
-        for (int i = RESP_MSG_DATA_START_IDX; i < SIZE_OF_RX_DATA_BUFFER; i++) {
-          if( rx_data_buffer[i] > 0) {
-            Serial.print(rx_data_buffer[i]);
-            Serial.print(" ");
-          }
-        }
-      } else {
-        Serial.println("first bytes of recieved data frame doesn't match");
+        Serial.println("Data received, and verified.");
+        verified = true;
       }
-    } else {
-      Serial.println("recieved frame is larger than buffer");
     }
   } 
   
   else
   { 
-    Serial.println("rx error");
     /* Clear RX error/timeout events in the DW IC status register. */
     dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
   }
@@ -252,12 +247,14 @@ void get_data() {
 void loop()
 {
   get_distance();   // this function requests a tag for distance, recieves and calculates tof to obtain distance
-  snprintf(dist_str, sizeof(dist_str), "\nDIST: %3.2f m\n", distance);
   dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);   // clear recieve 
-
   Sleep(RNG_DELAY_MS);   // sleep after getting distance values
-
   get_data();            // request data frame
+  if (distance <= 1 and verified) {
+    digitalWrite(VERIFIED_PIN, HIGH);
+  } else {
+    digitalWrite(VERIFIED_PIN, LOW);
+  }
   Sleep(RNG_DELAY_MS);   // sleep after getting distance values
 
 } 
