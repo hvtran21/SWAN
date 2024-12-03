@@ -13,7 +13,7 @@
 
 #define SPI_RST 9
 
-#define RNG_DELAY_MS 50
+#define RNG_DELAY_MS 1000
 #define TX_ANT_DLY 16385
 #define RX_ANT_DLY 16385
 #define ALL_MSG_COMMON_LEN 5
@@ -24,8 +24,10 @@
 #define RESP_MSG_RESP_TX_TS_IDX 10
 #define RESP_MSG_DATA_START_IDX 2  // index where data starts
 
-#define POLL_TX_TO_RESP_RX_DLY_UUS 240
-#define RESP_RX_TIMEOUT_UUS 400
+// #define POLL_TX_TO_RESP_RX_DLY_UUS 240
+// #define RESP_RX_TIMEOUT_UUS 400
+#define POLL_TX_TO_RESP_RX_DLY_UUS 400
+#define RESP_RX_TIMEOUT_UUS 2000
 
 #define SIZE_OF_RX_BUFFER 20
 #define SIZE_OF_RX_DATA_BUFFER 40
@@ -67,12 +69,13 @@ void setup() {
   UART_init();
   /*next two lines is the original code*/
   pinMode(SPI_IRQ, OUTPUT);
+  pinMode(VERIFIED_PIN, OUTPUT);
   
   // spiBegin(SPI_IRQ, SPI_RST);
   SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, SPI_CSN);
   spiSelect(SPI_CSN);
 
-  delay(200); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
+  delay(2); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
 
   while (!dwt_checkidlerc()) // Need to make sure DW IC is in IDLE_RC before proceeding
   {
@@ -143,7 +146,6 @@ void get_distance() {
 
   /* Increment frame sequence number after transmission of the poll message (modulo 256). */
   frame_seq_nb++;
-
   if (status_reg & SYS_STATUS_RXFCG_BIT_MASK)
   {
     uint32_t frame_len;
@@ -248,12 +250,14 @@ void loop()
 {
   get_distance();   // this function requests a tag for distance, recieves and calculates tof to obtain distance
   dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);   // clear recieve 
-  Sleep(RNG_DELAY_MS);   // sleep after getting distance values
+  Serial.println(distance);
   get_data();            // request data frame
   if (distance <= 1 and verified) {
+    Serial.println("pin set high");
     digitalWrite(VERIFIED_PIN, HIGH);
   } else {
     digitalWrite(VERIFIED_PIN, LOW);
+    Serial.println("pin set low");
   }
   Sleep(RNG_DELAY_MS);   // sleep after getting distance values
 

@@ -31,7 +31,7 @@ extern SPISettings _fastSPI;
 #define RESP_MSG_RESP_TX_TS_IDX 10
 #define RESP_MSG_DATA_START_IDX 2  // index where data starts
 
-#define POLL_RX_TO_RESP_TX_DLY_UUS 450
+#define POLL_RX_TO_RESP_TX_DLY_UUS 800
 
 #define SIZE_OF_RX_BUFFER 20
 
@@ -75,6 +75,10 @@ void setup() {
   
   SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, SPI_CSN);
   spiSelect(SPI_CSN);
+  spiSelect(SPI_CSN);
+  delay(100);  // Add a small delay to allow the reset to take effect.
+  
+  spiSelect(SPI_CSN);  
   delay(100);  // Add a small delay to allow the reset to take effect.
   
 
