@@ -130,12 +130,12 @@ void setup() {
    * Note, in real low power applications the LEDs should not be used. */
   dwt_setlnapamode(DWT_LNA_ENABLE | DWT_PA_ENABLE);
 
-  for (int i = 0; i < SIZE_OF_RX_BUFFER; i++) {
-    rx_buffer[i] = 0;
-  }
-  for (int i = 0; i < SIZE_OF_RX_DATA_BUFFER; i++) {
-    rx_data_buffer[i] = 0;
-  }
+  // for (int i = 0; i < SIZE_OF_RX_BUFFER; i++) {
+  //   rx_buffer[i] = 0;
+  // }
+  // for (int i = 0; i < SIZE_OF_RX_DATA_BUFFER; i++) {
+  //   rx_data_buffer[i] = 0;
+  // }
 
   Serial.println("Range RX");
   Serial.println("Home Anchor setup ...");
