@@ -1,0 +1,17 @@
+Changes made so far for PCB v2 (as of 2/4/2025)
+
+pin changes:
+    CSN -> IO4
+    MOSI -> IO5
+    MISO -> IO6 
+    CLK -> IO7
+    RSTN -> IO19
+    IRQ -> IO18
+
+additions:
+    - SW1 is the BOOT button, this will GND IO9 (PIN 8)
+        for flash mode
+    - SW2 is the RST button. Before we had to power cycle the 
+        system which was inefficient, so this switch will ground it
+    - There's an extra 01x02 pin header for extra GPIO
+    - Added pull up resistor for the EN pin

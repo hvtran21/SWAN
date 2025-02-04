@@ -1,7 +1,0 @@
-pin changes:
-CSN -> IO4
-MOSI -> IO5
-MISO -> IO6 
-CLK -> IO7
-RSTN -> IO19
-IRQ -> IO18
