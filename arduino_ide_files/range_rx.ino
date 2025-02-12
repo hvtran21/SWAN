@@ -29,6 +29,8 @@
 #define POLL_TX_TO_RESP_RX_DLY_UUS 200
 #define RESP_RX_TIMEOUT_UUS 1000
 
+#define TAG_REQUEST_DELAY_MS 2 // in ms
+
 #define SIZE_OF_RX_BUFFER 20
 #define SIZE_OF_RX_DATA_BUFFER 40
 #define VERIFIED_PIN 2
@@ -130,12 +132,12 @@ void setup() {
    * Note, in real low power applications the LEDs should not be used. */
   dwt_setlnapamode(DWT_LNA_ENABLE | DWT_PA_ENABLE);
 
-  // for (int i = 0; i < SIZE_OF_RX_BUFFER; i++) {
-  //   rx_buffer[i] = 0;
-  // }
-  // for (int i = 0; i < SIZE_OF_RX_DATA_BUFFER; i++) {
-  //   rx_data_buffer[i] = 0;
-  // }
+  for (int i = 0; i < SIZE_OF_RX_BUFFER; i++) {
+    rx_buffer[i] = 0;
+  }
+  for (int i = 0; i < SIZE_OF_RX_DATA_BUFFER; i++) {
+    rx_data_buffer[i] = 0;
+  }
 
   Serial.println("Range RX");
   Serial.println("Home Anchor setup ...");
@@ -236,7 +238,7 @@ void get_distance_2() {
 
     /* A frame has been received, see if it can be stored in local buffer */
     frame_len = dwt_read32bitreg(RX_FINFO_ID) & RXFLEN_MASK;
-    Serial.println("tag 2 distance recieved\n");
+    // Serial.println("tag 2 distance recieved\n");
     if (frame_len <= sizeof(rx_buffer)) 
     {
       dwt_readrxdata(rx_buffer, frame_len, 0);
@@ -246,7 +248,7 @@ void get_distance_2() {
       rx_buffer[ALL_MSG_SN_IDX] = 0;
       if (memcmp(rx_buffer, rx_resp_msg_2, ALL_MSG_COMMON_LEN) == 0)
       { 
-        Serial.println("tag 2 distance approved\n");
+        // Serial.println("tag 2 distance approved\n");
 
         uint32_t poll_tx_ts, resp_rx_ts, poll_rx_ts, resp_tx_ts;
         int32_t rtd_init, rtd_resp;
@@ -272,14 +274,14 @@ void get_distance_2() {
         
         test_run_info((unsigned char *)dist_str);
       } else {
-        Serial.println("tag 2 distance denied\n");
+        // Serial.println("tag 2 distance denied\n");
       }
     }
   } 
   
   else
   {
-    Serial.println("tag 2 recieve error\n");
+    // Serial.println("tag 2 recieve error\n");
     /* Clear RX error/timeout events in the DW IC status register. */
     dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
   }
@@ -320,7 +322,7 @@ void get_data() {
        * As the sequence number field of the frame is not relevant, it is cleared to simplify the validation of the frame. */
       if (memcmp(rx_data_buffer, rx_resp_data_msg, ALL_DATA_COMMON_LEN) == 0)
       { 
-        Serial.println("Data received, and verified.");
+        // Serial.println("Data received, and verified.");
         verified = true;
       }
     }
@@ -368,7 +370,7 @@ void get_data_2() {
        * As the sequence number field of the frame is not relevant, it is cleared to simplify the validation of the frame. */
       if (memcmp(rx_data_buffer, rx_resp_data_msg_2, ALL_DATA_COMMON_LEN) == 0)
       { 
-        Serial.println("Data 2 received, and verified.");
+        // Serial.println("Data 2 received, and verified.");
         verified_2 = true;
       }
     }
@@ -385,14 +387,16 @@ void get_data_2() {
 void loop()
 {
   get_distance();  // get distance from tag 1
-  dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);   // clear recieve
+  delay(TAG_REQUEST_DELAY_MS);
   get_distance_2(); // get distance from tag 2
   
   Serial.print(frame_seq_nb);
   Serial.print(": tag 1: ");
   Serial.print(distance); 
+  Serial.print(" m");
   Serial.print(", tag 2: ");
   Serial.print(distance_2);
+  Serial.print(" m");
   Serial.print("\n");
 
   // get_data();     // request data from tag 1
