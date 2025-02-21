@@ -1,12 +1,20 @@
 #include "dw3000.h"
 #include "dw3000_mac_802_15_4.h"
+#include "esp_efuse.h"
+#include "SPI.h"
 
 #define APP_NAME "SS TWR AES INIT v1.0"
 
-// connection pins
-const uint8_t PIN_RST = 27; // reset pin
-const uint8_t PIN_IRQ = 34; // irq pin
-const uint8_t PIN_SS = 4; // spi select pin
+#define SPI_IRQ 4
+
+#define SPI_CLK 5
+#define SPI_MISO 6
+#define SPI_MOSI 7
+#define SPI_CSN 8
+
+#define SPI_RST 9
+
+#define VERIFIED_PIN 2
 
 /* Sample of 802_15_4 frame*/
 #if 0
@@ -37,8 +45,46 @@ mac_frame_802_15_4_format_t     mac_frame=
     .mhr_802_15_4.aux_security.security_ctrl=0x0F,
 
 };
+mac_frame_802_15_4_format_t     mac_frame_2=
+{
+    /*
+    * Frame control[0] = 0x09 = Data frame, security enabled, PEND not set, no ACK required, PANID compression set to zero (no PANID for source)
+    * Frame control[1] = 0xEC = With seq num, no IEs, using extended address, frame ver 2 (IEEE Std 802.15.4)
+    */
+    .mhr_802_15_4.frame_ctrl[0]=0x09,
+    .mhr_802_15_4.frame_ctrl[1]=0xEC,
+
+    /* Sequence number initialize value*/
+    .mhr_802_15_4.sequence_num=0x00,
+
+    .mhr_802_15_4.dest_pan_id[0]=0x34,
+    .mhr_802_15_4.dest_pan_id[1]=0x12,
+
+
+    /* Set the Security Control field in the Auxiliary Security Header
+    *  Security Control = 0xF:
+    *                         Security level: 0x7 = MIC 16 (data confidentiality OFF, data authenticity Yes),
+    *                         Key Identifier Mode: 0x1 = key determined from key index field,
+    *                         Frame Counter Suppression: 0x0 = has the frame counter and the frame counter generates the nonce.
+    *                         ASN in Nonce: 0x0 = frame counter is used to generate the nonce (CCM* nonce = SRC ADDR (8), Frame Counter (4) and Nonce Security Level (1) - set to 0x7 above)
+    *  This means that format of the AUX header is Security Control (1 octet) + Fame Counter (4 octets) + Key Identifier (1 octet) = 6 octets
+    */
+    .mhr_802_15_4.aux_security.security_ctrl=0x0F,
+
+};
 #endif
 mac_frame_802_15_4_format_t     mac_frame= {
+  {
+    {0x09, 0xEC},
+    0x00,
+    {0x21, 0x43},
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+    { 0x0F, {0x00, 0x00, 0x00, 0x00}, 0x00 }
+  },
+  0x00
+};
+mac_frame_802_15_4_format_t     mac_frame_2= {
   {
     {0x09, 0xEC},
     0x00,
@@ -60,6 +106,15 @@ static dwt_aes_config_t aes_config=
     .aes_key_otp_type   = AES_key_RAM,
     .key_addr           = 0
 };
+static dwt_aes_config_t aes_config_2=
+{
+    .key_load           = AES_KEY_Load,         // load the key into AES engine see Note 15 below
+    .key_size           = AES_KEY_128bit,       // use 128bit key
+    .key_src            = AES_KEY_Src_Register, // the key source is IC registers
+    .aes_core_type      = AES_core_type_CCM,    // Use CCM core
+    .aes_key_otp_type   = AES_key_RAM,
+    .key_addr           = 0
+};
 #endif
 
 static dwt_aes_config_t aes_config = {
@@ -72,11 +127,23 @@ static dwt_aes_config_t aes_config = {
   AES_KEY_128bit,
   AES_Encrypt
 };
+static dwt_aes_config_t aes_config_2 = {
+  AES_key_RAM,
+  AES_core_type_CCM,
+  MIC_0,
+  AES_KEY_Src_Register,
+  AES_KEY_Load,
+  0,
+  AES_KEY_128bit,
+  AES_Encrypt
+};
 
 /* Initiator data */
-#define DEST_ADDR       0x1122334455667788 /* this is the address of the responder */
+#define DEST_ADDR       0x1122334455667788 /* this is the address of the responder tag 1*/
 #define SRC_ADDR        0x8877665544332211 /* this is the address of the initiator */
-#define DEST_PAN_ID     0x4321             /* this is the PAN ID used in this example */
+#define DEST_ADDR_2     0x1122334455667799 /* tag 2 */
+#define DEST_PAN_ID     0x4321             /* this is the PAN ID used in this example tag 1*/
+#define DEST_PAN_ID_2   0x1234
 
 /* Default communication configuration. We use default non-STS DW mode. */
 static dwt_config_t config =
@@ -104,9 +171,15 @@ static dwt_aes_key_t    keys_options[NUM_OF_KEY_OPTIONS]=
     {0x11223344, 0x55667788, 0x99AABBCC, 0xDDEEFF00, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
     {0xFFEEDDCC, 0xBBAA9988, 0x77665544, 0x33221100, 0x00000000, 0x00000000, 0x00000000, 0x00000000}
 };
+static dwt_aes_key_t    keys_options_2[NUM_OF_KEY_OPTIONS]=
+{
+    {0x00010203, 0x04050607, 0x08090A0B, 0x0C0D0E0F, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
+    {0x11223344, 0x55667788, 0x99AABBCC, 0xDDEEFF00, 0x00000000, 0x00000000, 0x00000000, 0x00000000},
+    {0xFFEEDDCC, 0xBBAA9988, 0x77665544, 0x33221100, 0x00000000, 0x00000000, 0x00000000, 0x00000000}
+};
 
 /* Inter-ranging delay period, in milliseconds. */
-#define RNG_DELAY_MS 1000
+#define RNG_DELAY_MS 900
 
 /* Default antenna delay values for 64 MHz PRF. See NOTE 2 below. */
 #define TX_ANT_DLY 16385
@@ -118,12 +191,19 @@ static uint8_t tx_poll_msg[] = {'P','o','l','l',' ','m','e','s','s','a','g','e'}
 /* Response message to the initiator. The first 8 bytes are used for Poll RX time and Response TX time.*/
 static uint8_t rx_resp_msg[] = {0,0,0,0,0,0,0,0,'R','e','s','p','o','n','s','e'};
 
+/* Poll message from the initiator to the responder */
+static uint8_t tx_poll_msg_2[] = {'T','e','s','t',' ','T','e','s','t','T','a','g'};
+/* Response message to the initiator. The first 8 bytes are used for Poll RX time and Response TX time.*/
+static uint8_t rx_resp_msg_2[] = {0,0,0,0,0,0,0,0,'T','e','s','t',' ','T','a','g'};
+
 #define START_RECEIVE_DATA_LOCATION     8   //MAC payload user data starts at index 8 (e.g. 'R' - in above response message)
 
 /* Indexes to access some of the fields in the frames defined above. */
 #define ALL_MSG_SN_IDX 2            //sequence number byte index in MHR
 #define RESP_MSG_POLL_RX_TS_IDX 0   //index in the MAC payload for Poll RX time
 #define RESP_MSG_RESP_TX_TS_IDX 4   //index in the MAC payload for Response TX time
+#define RESP_MSG_POLL_RX_TS_IDX_2 0   //index in the MAC payload for Poll RX time
+#define RESP_MSG_RESP_TX_TS_IDX_2 4   //index in the MAC payload for Response TX time
 #define RESP_MSG_TS_LEN 4
 
 /* Note, the key index of 0 is forbidden to send as key index. Thus index 1 is the first.
@@ -134,15 +214,22 @@ static uint8_t rx_resp_msg[] = {0,0,0,0,0,0,0,0,'R','e','s','p','o','n','s','e'}
  * Its size is adjusted to longest frame that this example code can handle. */
 #define RX_BUF_LEN 127 /* The received frame cannot be bigger than 127 if STD PHR mode is used */
 static uint8_t rx_buffer[RX_BUF_LEN];
+static uint8_t rx_buffer_2[RX_BUF_LEN];
 
 /* Delay between frames, in UWB microseconds. See NOTE 1 below. */
 #define POLL_TX_TO_RESP_RX_DLY_UUS 1720
 /* Receive response timeout. See NOTE 5 below. */
 #define RESP_RX_TIMEOUT_UUS 250
 
+#define TAG_REQUEST_DELAY_MS 3000 // in ms
+
+#define RNG_DELAY_MS 500
+
 /* Hold copies of computed time of flight and distance here for reference so that it can be examined at a debug breakpoint. */
 static double tof;
 static double distance;
+static double tof_2;
+static double distance_2;
 
 /* Values for the PG_DELAY and TX_POWER registers reflect the bandwidth and power of the spectrum at the current
  * temperature. These values can be calibrated prior to taking reference measurements. See NOTE 2 below. */
@@ -155,6 +242,14 @@ uint8_t           nonce[13];    /* 13-byte nonce used in this example as per IEE
 dwt_aes_job_t   aes_job_tx,aes_job_rx;
 int8_t          status;
 
+extern dwt_txconfig_t txconfig_options_2;
+
+static uint32_t   frame_cnt_2=0;  /* See Note 13 */
+static uint8_t    seq_cnt_2=0x0A; /* Frame sequence number, incremented after each transmission. */
+uint32_t          status_reg_2;
+dwt_aes_job_t   aes_job_tx_2,aes_job_rx_2;
+int8_t          status_2;
+
     
 void setup() {
   UART_init();
@@ -162,8 +257,14 @@ void setup() {
 
   /* Configure SPI rate, DW3000 supports up to 38 MHz */
   /* Reset DW IC */
-  spiBegin(PIN_IRQ, PIN_RST);
-  spiSelect(PIN_SS);
+  /*
+  spiBegin(PIN_IRQ, PIN_RST);*/
+  pinMode(SPI_IRQ, OUTPUT);
+  pinMode(VERIFIED_PIN, OUTPUT);
+  
+  // spiBegin(SPI_IRQ, SPI_RST);
+  SPI.begin(SPI_CLK, SPI_MISO, SPI_MOSI, SPI_CSN);
+  spiSelect(SPI_CSN);
 
   delay(2); // Time needed for DW3000 to start up (transition from INIT_RC to IDLE_RC, or could wait for SPIRDY event)
 
@@ -224,9 +325,24 @@ void setup() {
     aes_job_rx.header      = aes_job_tx.header;/* plain-text header which will not be encrypted */
     aes_job_rx.payload     = rx_buffer;        /* pointer to where the decrypted data will be copied to when read from the IC*/
 
+    aes_job_tx_2.mode        = AES_Encrypt;     /* this is encryption job */
+    aes_job_tx_2.src_port    = AES_Src_Tx_buf;  /* dwt_do_aes will take plain text to the TX buffer */
+    aes_job_tx_2.dst_port    = AES_Dst_Tx_buf;  /* dwt_do_aes will replace the original plain text TX buffer with encrypted one */
+    aes_job_tx_2.nonce       = nonce;          /* pointer to the nonce structure*/
+    aes_job_tx_2.header      = (uint8_t *)MHR_802_15_4_PTR(&mac_frame_2);/* plain-text header which will not be encrypted */
+    aes_job_tx_2.header_len  = MAC_FRAME_HEADER_SIZE(&mac_frame_2);
+    aes_job_tx_2.payload     = tx_poll_msg_2;    /* payload to be encrypted */
+    aes_job_tx_2.payload_len = sizeof(tx_poll_msg_2); /* size of payload to be encrypted */
+
+    aes_job_rx_2.mode        = AES_Decrypt;      /* this is decryption job */
+    aes_job_rx_2.src_port    = AES_Src_Rx_buf_0; /* The source of the data to be decrypted is the IC RX buffer */
+    aes_job_rx_2.dst_port    = AES_Dst_Rx_buf_0; /* Decrypt the encrypted data to the IC RX buffer : this will destroy original RX frame */
+    aes_job_rx_2.header_len  = aes_job_tx_2.header_len;
+    aes_job_rx_2.header      = aes_job_tx_2.header;/* plain-text header which will not be encrypted */
+    aes_job_rx_2.payload     = rx_buffer_2;        /* pointer to where the decrypted data will be copied to when read from the IC*/
 }
 
-void loop() {
+void get_distance() {
         /* Program the correct key to be used */
         dwt_set_keyreg_128(&keys_options[INITIATOR_KEY_INDEX-1]);
         /* Set the key index for the frame */
@@ -272,7 +388,7 @@ void loop() {
 
         MAC_FRAME_SEQ_NUM_802_15_4(&mac_frame)=++seq_cnt;
         mac_frame_update_aux_frame_cnt(&mac_frame,++frame_cnt);
-
+        // Serial.print(status_reg);
         if (status_reg & SYS_STATUS_RXFCG_BIT_MASK)
         {/* Got response */
             uint32_t frame_len;
@@ -342,8 +458,8 @@ void loop() {
                 distance = tof * SPEED_OF_LIGHT;
 
                 /* Display computed distance on LCD. */
-                snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
-                test_run_info((unsigned char *)dist_str);
+                // snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
+                // test_run_info((unsigned char *)dist_str);
             }
 
         }
@@ -354,8 +470,164 @@ void loop() {
         }
 
         /* Execute a delay between ranging exchanges. */
-        Sleep(RNG_DELAY_MS);
+        Sleep(TAG_REQUEST_DELAY_MS);
 }
+
+void get_distance_2() {
+
+        /* Program the correct key to be used */
+        aes_job_tx_2.payload     = tx_poll_msg_2;    /* payload to be encrypted */
+        aes_job_tx_2.payload_len = sizeof(tx_poll_msg_2); /* size of payload to be encrypted */
+        dwt_set_keyreg_128(&keys_options[INITIATOR_KEY_INDEX-1]);
+        /* Set the key index for the frame */
+        MAC_FRAME_AUX_KEY_IDENTIFY_802_15_4(&mac_frame_2)=INITIATOR_KEY_INDEX;
+
+        /* Update MHR to the correct SRC and DEST addresses and construct the 13-byte nonce
+         * (same MAC frame structure is used to store both received data and transmitted data - thus SRC and DEST addresses
+         * need to be updated before each transmission */
+        mac_frame_set_pan_ids_and_addresses_802_15_4(&mac_frame_2,DEST_PAN_ID,DEST_ADDR,SRC_ADDR);
+        mac_frame_get_nonce(&mac_frame_2,nonce);
+
+        aes_job_tx_2.mic_size = mac_frame_get_aux_mic_size(&mac_frame_2);
+        aes_config_2.mode = AES_Encrypt;
+        aes_config_2.mic  = dwt_mic_size_from_bytes(aes_job_tx_2.mic_size);
+        dwt_configure_aes(&aes_config_2);
+
+        /* The AES job will take the TX frame data and and copy it to DW IC TX buffer before transmission. See NOTE 7 below. */
+        status_2=dwt_do_aes(&aes_job_tx_2,aes_config_2.aes_core_type);
+        /* Check for errors */
+        if (status_2<0)
+        {
+            test_run_info((unsigned char *)"AES length error");
+            while (1);/* Error */
+        }
+        else if (status_2 & AES_ERRORS)
+        {
+            test_run_info((unsigned char *)"ERROR AES");
+            while (1);/* Error */
+        }
+
+        /* configure the frame control and start transmission */
+        dwt_writetxfctrl(aes_job_tx_2.header_len + aes_job_tx_2.payload_len + aes_job_tx_2.mic_size + FCS_LEN, 0, 1); /* Zero offset in TX buffer, ranging. */
+
+        /* Start transmission, indicating that a response is expected so that reception is enabled automatically after the frame is sent and the delay
+         * set by dwt_setrxaftertxdelay() has elapsed. */
+        dwt_starttx(DWT_START_TX_IMMEDIATE | DWT_RESPONSE_EXPECTED);
+
+        /* We assume that the transmission is achieved correctly, poll for reception of a frame or error/timeout. See NOTE 8 below. */
+        while (!((status_reg = dwt_read32bitreg(SYS_STATUS_ID)) & (SYS_STATUS_RXFCG_BIT_MASK | SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR)))
+        { };
+
+        /* Increment frame sequence number (modulo 256) and frame counter, after transmission of the poll message . */
+        MAC_FRAME_SEQ_NUM_802_15_4(&mac_frame_2)=++seq_cnt_2;
+        mac_frame_update_aux_frame_cnt(&mac_frame_2,++frame_cnt_2);
+        //Serial.print(status_reg);
+        if (status_reg & SYS_STATUS_RXFCG_BIT_MASK)
+        {/* Got response */
+            uint32_t frame_len_2;
+
+            /* Clear good RX frame event in the DW IC status register. */
+            dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);
+
+            /* Read data length that was received */
+            frame_len_2 = dwt_read32bitreg(RX_FINFO_ID)&RXFLEN_MASK;
+
+            /* A frame has been received: firstly need to read the MHR and check this frame is what we expect:
+             * the destination address should match our source address (frame filtering can be configured for this check,
+             * however that is not part of this example); then the header needs to have security enabled.
+             * If any of these checks fail the rx_aes_802_15_4 will return an error
+             * */
+            aes_config_2.mode=AES_Decrypt;
+            PAYLOAD_PTR_802_15_4(&mac_frame_2)=rx_buffer_2;/* Set the MAC pyload ptr */
+
+            /* This example assumes that initiator and responder are sending encrypted data */
+            status_2=rx_aes_802_15_4(&mac_frame_2,frame_len_2,&aes_job_rx_2,sizeof(rx_buffer_2),keys_options_2,DEST_ADDR,SRC_ADDR,&aes_config_2);
+            if (status_2!=AES_RES_OK)
+            {
+              do {
+                switch (status_2)
+                {
+                    case AES_RES_ERROR_LENGTH:
+                        test_run_info((unsigned char *)"Length AES error");
+                        break;
+                    case AES_RES_ERROR:
+                        test_run_info((unsigned char *)"ERROR AES");
+                        break;
+                    case AES_RES_ERROR_FRAME:
+                        test_run_info((unsigned char *)"Error Frame");
+                        break;
+                    case AES_RES_ERROR_IGNORE_FRAME:
+                        test_run_info((unsigned char *)"Frame not for us");
+                        continue;//Got frame not for us
+                }
+              } while (1);
+            }
+
+            /* Check that the frame is the expected response from the companion "SS TWR AES responder" example.
+             * ignore the 8 first bytes of the response message as they contain the poll and response timestamps */
+            if (memcmp(&rx_buffer_2[START_RECEIVE_DATA_LOCATION], &rx_resp_msg_2[START_RECEIVE_DATA_LOCATION],
+                    aes_job_rx_2  .payload_len-START_RECEIVE_DATA_LOCATION) == 0)
+            {
+                uint32_t poll_tx_ts_2, resp_rx_ts_2, poll_rx_ts_2, resp_tx_ts_2;
+                int32_t rtd_init_2, rtd_resp_2;
+                float clockOffsetRatio;
+
+                /* Retrieve poll transmission and response reception timestamps. See NOTE 9 below. */
+                poll_tx_ts_2 = dwt_readtxtimestamplo32();
+                resp_rx_ts_2 = dwt_readrxtimestamplo32();
+
+                /* Read carrier integrator value and calculate clock offset ratio. See NOTE 11 below. */
+                clockOffsetRatio = ((float)dwt_readclockoffset()) / (uint32_t)(1<<26);
+
+                /* Get timestamps embedded in response message. */
+                resp_msg_get_ts(&rx_buffer_2[RESP_MSG_POLL_RX_TS_IDX_2], &poll_rx_ts_2);
+                resp_msg_get_ts(&rx_buffer_2[RESP_MSG_RESP_TX_TS_IDX_2], &resp_tx_ts_2);
+
+                /* Compute time of flight and distance, using clock offset ratio to correct for differing local and remote clock rates */
+                rtd_init_2 = resp_rx_ts_2 - poll_tx_ts_2;
+                rtd_resp_2 = resp_tx_ts_2 - poll_rx_ts_2;
+
+                tof_2 = ((rtd_init_2 - rtd_resp_2 * (1 - clockOffsetRatio)) / 2.0) * DWT_TIME_UNITS;
+                distance_2 = tof_2 * SPEED_OF_LIGHT;
+
+                /* Display computed distance on LCD. */
+                // snprintf(dist_str, sizeof(dist_str), "DIST: %3.2f m", distance);
+                // test_run_info((unsigned char *)dist_str);
+            }
+
+        }
+        else
+        {
+            /* Clear RX error/timeout events in the DW IC status register. */
+            dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_ALL_RX_TO | SYS_STATUS_ALL_RX_ERR);
+        }
+        /* Execute a delay between ranging exchanges. */
+        Sleep(TAG_REQUEST_DELAY_MS);
+}
+
+void loop()
+{
+  get_distance();  // get distance from tag 1
+  get_distance_2(); // get distance from tag 2
+  Serial.print("tag 1: ");
+  Serial.print(distance); 
+  Serial.print(" m");
+  Serial.print(", tag 2: ");
+  Serial.print(distance_2);
+  Serial.print(" m");
+  Serial.print("\n");
+
+  // get_data();     // request data from tag 1
+  // dwt_write32bitreg(SYS_STATUS_ID, SYS_STATUS_RXFCG_BIT_MASK);   // clear recieve
+  // get_data_2();   // request data from tag 2
+
+  if (distance <= 1 and distance_2 <= 1 and distance != 0 and distance_2 != 0) {
+    digitalWrite(VERIFIED_PIN, HIGH);
+  } else {
+    digitalWrite(VERIFIED_PIN, LOW);
+  }
+
+} 
 
 /*****************************************************************************************************************************************************
  * NOTES:
