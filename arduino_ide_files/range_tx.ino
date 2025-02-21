@@ -9,7 +9,7 @@ extern SPISettings _fastSPI;
 // #define PIN_RST 8 
 // #define PIN_IRQ 1
 // #define PIN_SS 7
-
+kjhsdfsdfgsdfg
 /* below are pin definitions for esp32-c3 sdp pcb */
 #define SPI_IRQ 4
 
