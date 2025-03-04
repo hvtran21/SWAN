@@ -3,3 +3,9 @@ Anchor PCB Power Analysis (with AES):
 -> Current draw:     6 mA
 -> Battery capacity: 500 mAh
 -> If sys always on: 86.24 Hours
+
+Tag PCB Power Analysis (with AES):
+-> Battery voltage:  3.7 V
+-> Current draw:     6 mA
+-> Battery capacity: 500 mAh
+-> If sys always on: 86.24 Hours
