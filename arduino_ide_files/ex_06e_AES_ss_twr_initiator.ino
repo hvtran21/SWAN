@@ -391,6 +391,12 @@ void get_distance() {
         // Serial.print(status_reg);
         if (status_reg & SYS_STATUS_RXFCG_BIT_MASK)
         {/* Got response */
+            Serial.print("Encrypted: ");
+            for(int i = 0; i < aes_job_rx.payload_len; i++)
+            {
+              Serial.print((char) aes_job_rx.payload[i]);
+            }
+            Serial.println();
             uint32_t frame_len;
 
             /* Clear good RX frame event in the DW IC status register. */
@@ -429,6 +435,13 @@ void get_distance() {
                 }
               } while (1);
             }
+            
+            Serial.print("Decrypted: ");
+              for(int i = 0; i < aes_job_rx.payload_len; i++)
+              {
+                Serial.print((char) aes_job_rx.payload[i]);
+              }
+            Serial.println();
 
             /* Check that the frame is the expected response from the companion "SS TWR AES responder" example.
              * ignore the 8 first bytes of the response message as they contain the poll and response timestamps */
