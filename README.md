@@ -37,8 +37,10 @@ Key design features:
   - Back method to lost tags which includes an optical finger print reader, independent from the anchor removing depedency.
  
 ### What this enables
-The idea is that these `tag` devices could took space in your wallet as a card, and something on your keychain.
-These are items that you typically always have on your person, and want to keep import track of.
+The idea is that these `tag` devices can take space in your wallet as a card, and something on your keychain.
+These are items that you typically always have on your person, and want to keep import track of. In the unfortunate event 
+that one of these devices are stolen, rest assured you're provided with a back biometric feature and that **two** tags 
+must be present at all times.
 
 ---
 
@@ -65,6 +67,7 @@ These are items that you typically always have on your person, and want to keep 
 
 ## Home Anchor PCB v1
 <img width="834" height="384" alt="image" src="https://github.com/user-attachments/assets/b30a2dc9-13c4-4ea9-8b46-50f87fe7a93d" />
+
 
 
 
