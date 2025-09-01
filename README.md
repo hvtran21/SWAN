@@ -1,4 +1,4 @@
-# Secure Wireless Authentication Network (SWAN)
+# Secure Wireless Authentication Network (SWAN) Electrical & Computer Engineering Class of 2025
 
 ## Overview
 **SWAN (Secure Wireless Authentication Network)** is a senior capstone project focused on developing a safer, more seamless alternative to traditional RFID and NFC-based access systems.  
@@ -67,6 +67,7 @@ must be present at all times.
 
 ## Home Anchor PCB v1
 <img width="834" height="384" alt="image" src="https://github.com/user-attachments/assets/b30a2dc9-13c4-4ea9-8b46-50f87fe7a93d" />
+
 
 
 
